@@ -1,0 +1,6 @@
+Model column: predicted_answer_mistral
+Subset: Answerable only
+MRR@10: 1.0000
+nDCG@10: 1.0000
+ROUGE-L: 0.5000
+BLEU-4: 0.1495

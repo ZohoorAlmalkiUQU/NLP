@@ -1,0 +1,9 @@
+Arabica QA RAG Evaluation – Final Results
+==================================================
+Date : 2025-12-13 21:11
+Questions : 1,000
+
+Llama-3.1-8B → EM:   0.00% | EM25:   0.00%
+Mistral-7B-Instruct → EM:   0.00% | EM25:   0.00%
+
+Winner: Llama-3.1-8B (+0.00 pts)
