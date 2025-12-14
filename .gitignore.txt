@@ -1,0 +1,57 @@
+# =====================
+# Secrets & tokens
+# =====================
+.env
+*.env
+.env.*
+**/secrets.*
+**/*token*
+**/*apikey*
+**/*key*
+
+# HuggingFace / Auth
+.huggingface/
+**/.huggingface/
+
+# =====================
+# Chroma / Vector DB
+# =====================
+chroma*/
+*.sqlite3
+*.db
+
+# =====================
+# LangChain / Cache
+# =====================
+langchain_cache/
+.cache/
+__pycache__/
+*.pyc
+
+# =====================
+# Datasets / large files
+# =====================
+data/
+datasets/
+*.parquet
+*.csv
+*.jsonl
+*.pkl
+
+# =====================
+# Notebooks
+# =====================
+.ipynb_checkpoints/
+
+# =====================
+# OS / IDE
+# =====================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# =====================
+# Logs
+# =====================
+*.log
