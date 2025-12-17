@@ -1,9 +1,18 @@
 Arabica QA RAG Evaluation – Final Results
-==================================================
-Date : 2025-12-14 19:39
-Questions : 1,000
+============================================================
+Date : 2025-12-17 20:12
+Questions (total) : 1,000
+Answerable        : 500
+Unanswerable      : 500
+No-answer label   : غير موجود في السياق
 
-Llama-3.1-8B → EM:   2.20% | EM25:   2.20%
-Mistral-7B-Instruct → EM:   0.60% | EM25:   0.60%
+OVERALL (unanswerables mapped to no-answer label)
+------------------------------------------------------------
+Llama-3.1-8B → EM:  10.70% | EM25:  10.70%
+Mistral-7B-Instruct → EM:  13.50% | EM25:  13.50%
+Winner: Mistral-7B-Instruct (+2.80 pts on EM25)
 
-Winner: Llama-3.1-8B (+1.60 pts)
+BREAKDOWN
+------------------------------------------------------------
+Llama-3.1-8B → Ans EM:   4.20% | Ans EM25:   4.20% | No-Ans Acc:  27.20%
+Mistral-7B-Instruct → Ans EM:   1.20% | Ans EM25:   1.20% | No-Ans Acc:  31.60%
