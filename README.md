@@ -10,9 +10,9 @@ It benchmarks a fixed Retrieval-Augmented Generation (RAG) setup on **ArabicaQA*
 - **Mistral-7B-Instruct** (`mistralai/mistral-7b-instruct-v0.1`)
 - **Command-R7B** (`cohere/command-r7b-12-2024`)
 
-Evaluation includes classic QA metrics, retrieval ranking metrics, **RAGAS** grounding-aware metrics, and statistical significance analysis with multiple-comparisons correction.
+Evaluation includes classic QA metrics, retrieval ranking metrics, **RAGAS** grounding-aware metrics, statistical significance analysis with multiple-comparisons correction, TOST equivalence testing, and a set of reviewer-motivated robustness diagnostics (human-validated abstention matching, context-window overflow check, split-origin sensitivity).
 
-The pipeline is organized as six sequential notebooks (`00` through `05`); see [Pipeline / Notebook Order](#pipeline--notebook-order) below for what each one does and must be run in order.
+The pipeline is organized as seven sequential notebooks (`00` through `06`), plus two standalone Python utilities for abstention matching; see [Pipeline / Notebook Order](#pipeline--notebook-order) below for what each one does and must be run in order.
 
 ---
 
@@ -25,6 +25,9 @@ The pipeline is organized as six sequential notebooks (`00` through `05`); see [
 ├── 03_EM_EM25_ans-abstention-rate.ipynb
 ├── 04_RAGAS_statistical-analysis.ipynb
 ├── 05_extra-metrics.ipynb
+├── 06_split-origin_sensitivity_analysis.ipynb
+├── abstention_matcher.py         # canonical strict/flexible abstention matcher, imported by the notebooks and the script below
+├── validate_abstention_matcher.py  # human-validation workflow for the abstention matcher (build sample / score agreement)
 ├── Old_ArabicaQA_RAG_Eval_OpenRouter.ipynb   # superseded monolithic version, kept for reference only
 ├── requirements.txt
 ├── .env                          # OPENROUTER_API_KEY (not committed)
@@ -38,6 +41,8 @@ The pipeline is organized as six sequential notebooks (`00` through `05`); see [
     ├── predictions
     │   └── figures_strict_flexible
     ├── statistical_analysis
+    ├── split_sensitivity
+    ├── annotation
     ├── ragas_full
     │   ├── figures
     │   └── figures_full
@@ -50,12 +55,14 @@ The pipeline is organized as six sequential notebooks (`00` through `05`); see [
 
 ### Directory Description
 
-- `dataset/` — full ArabicaQA data structure (MRC, OpenQA) and processed evaluation subsets (e.g., 1000-example balanced sample), including intermediate analysis files.
-- `diagnostics/` — data integrity checks (gold answer validation, unanswerable label audits).
+- `dataset/` — full ArabicaQA data structure (MRC, OpenQA) and processed evaluation subsets (e.g., 1000-example balanced sample), including intermediate analysis files and split-origin (train/test) labels for the sample.
+- `diagnostics/` — data integrity checks (gold answer validation, unanswerable label audits) and the Mistral-7B context-window overflow diagnostic (per-prompt token counts, overflow rates against the endpoint's context budget).
 - `predictions/` — model outputs, retrieved contexts, EM/EM25 scores, and abstention/refusal rate results.
 - `statistical_analysis/` — bootstrap CI tables for EM/EM25/Token-F1 model-level metrics.
+- `split_sensitivity/` — outputs of the train- vs. test-origin sensitivity analysis (per-split metric breakdown and significance tests).
+- `annotation/` — human-validation materials and results for the abstention matcher: annotation guideline, per-annotator label sheets, stratum census, and (once scored) inter-annotator agreement and matcher precision/recall against human labels.
 - `ragas_full/` — descriptive-statistics figures for the full dataset and the 1,000-question sample (context/question/answer length, foreign-word counts, NER distributions). Despite the folder name, this does not contain RAGAS scores.
-- `ragas_full_llama_mistral_command/` — RAGAS evaluation outputs, per-question scores, CI analysis, paired significance tests, and generated figures.
+- `ragas_full_llama_mistral_command/` — RAGAS evaluation outputs, per-question scores, CI analysis, paired significance tests, TOST equivalence-testing results, and generated figures.
 - `extra_metrics_llama_mistral_command/` — extra generation and retrieval metrics (ROUGE-L, BLEU, Token-F1, MRR@K, nDCG@K) and figures.
 
 ## Pipeline / Notebook Order
@@ -73,24 +80,39 @@ Run the notebooks in this order — each one reads files written by the notebook
    - Writes: `arabicaqa_rag_results/dataset/df_sample_1000.csv`, `.../dataset/sample_ner_counts.csv`, figures in `.../ragas_full/`
 
 3. **`02_RAG.ipynb`** — *makes paid OpenRouter API calls*
-   Builds the Chroma vector index over the sample contexts, retrieves top-k passages, generates answers with all three models via OpenRouter, merges per-model outputs into one comparison file, and runs a gold-answer/answerability integrity check.
+   Builds the Chroma vector index over the sample contexts, retrieves top-k passages, generates answers with all three models via OpenRouter, merges per-model outputs into one comparison file, runs a gold-answer/answerability integrity check, and (Reviewer #1, Concern #3) runs a context-window overflow diagnostic that re-tokenizes every prompt with the real Mistral-7B-v0.1 tokenizer to check whether prompts exceeded the endpoint's context budget and were silently compressed.
    - Reads: `arabicaqa_rag_results/dataset/df_sample_1000.csv`
-   - Writes: `arabicaqa_rag_results/predictions/comparison_llama_mistral_command_1000.{csv,json}` (the file every downstream notebook depends on), per-model prediction files, `.../diagnostics/*.csv`
+   - Writes: `arabicaqa_rag_results/predictions/comparison_llama_mistral_command_1000.{csv,json}` (the file every downstream notebook depends on), per-model prediction files, `.../diagnostics/*.csv`, `.../diagnostics/context_overflow_summary.json`, `.../diagnostics/mistral_prompt_lengths.csv`
 
 4. **`03_EM_EM25_ans-abstention-rate.ipynb`**
-   Computes EM and EM25 (strict + flexible abstention policies), bootstrap CIs and pairwise significance for EM/EM25/Token-F1, and the answerable-abstention rate.
+   Computes EM and EM25 (strict + flexible abstention policies, via the shared `abstention_matcher.py` module), bootstrap CIs and pairwise significance for EM/EM25/Token-F1, and the answerable-abstention rate.
    - Reads: `arabicaqa_rag_results/predictions/comparison_llama_mistral_command_1000.csv`
    - Writes: `.../predictions/final_scores_strict_and_flexible_abstention_corrected.{csv,json,txt,md}`, `.../statistical_analysis/bootstrap_*_corrected.csv`, `.../predictions/answerable_abstention_rate_strict_and_flexible.csv`, figures in `.../predictions/figures_strict_flexible/`
 
 5. **`04_RAGAS_statistical-analysis.ipynb`** — *makes paid OpenRouter API calls (LLM judge)*
-   Runs RAGAS grounding metrics (faithfulness, answer relevancy, context precision/recall, answer similarity/correctness), bootstrap CIs, paired bootstrap and permutation significance tests, BH-FDR and Holm corrections, abstention/refusal-rate CIs, and summary figures.
+   Runs RAGAS grounding metrics (faithfulness, answer relevancy, context precision/recall, answer similarity/correctness), bootstrap CIs, paired bootstrap and permutation significance tests, BH-FDR and Holm corrections, abstention/refusal-rate CIs, TOST equivalence testing (for RAGAS comparisons that are not statistically significant, to test whether the difference is small enough to call the models equivalent), and summary figures.
    - Reads: `arabicaqa_rag_results/predictions/comparison_llama_mistral_command_1000.csv`
-   - Writes: everything under `.../ragas_full_llama_mistral_command/` (per-model/per-question/summary/NaN/latency tables, `ci_analysis/`, `figures/`)
+   - Writes: everything under `.../ragas_full_llama_mistral_command/` (per-model/per-question/summary/NaN/latency tables, `ci_analysis/` including `ragas_equivalence_tost.csv`, `figures/`)
 
 6. **`05_extra-metrics.ipynb`**
    Computes additional retrieval metrics (MRR@5, nDCG@5) and generation-quality metrics (ROUGE-L, BLEU, token Precision/Recall/F1) not covered by RAGAS, with summary figures and a heatmap.
    - Reads: `arabicaqa_rag_results/predictions/comparison_llama_mistral_command_1000.csv`
    - Writes: everything under `.../extra_metrics_llama_mistral_command/`
+
+7. **`06_split-origin_sensitivity_analysis.ipynb`** (Reviewer #1, Concern #1)
+   Checks whether ArabicaQA partitions the MRC task at the document or question level, reports the train/test composition of the 1,000-question sample, and re-breaks down EM/EM25/Token-F1/abstention by split origin to test whether merging train- and test-origin instances inflated the reported results.
+   - Reads: `arabicaqa_rag_results/dataset/df_all_mrc.csv`, `.../dataset/df_sample_1000.csv`, `.../predictions/comparison_llama_mistral_command_1000.csv`
+   - Writes: `.../dataset/split_overlap_summary.json`, `.../dataset/sample_split_labels.csv`, `.../split_sensitivity/breakdown_by_split.csv`, `.../split_sensitivity/train_vs_test_tests.csv`
+
+### Standalone abstention-matching utilities
+
+Not part of the numbered notebook sequence, but used by it and by a separate human-validation workflow:
+
+- **`abstention_matcher.py`** — single canonical implementation of the strict (exact-phrase) and flexible (26-pattern, bilingual) abstention matchers. All notebooks import from this module so every reported abstention figure is produced by identical matching logic. Includes a `self_test()` that checks for dead patterns and confirms strict ⇒ flexible.
+- **`validate_abstention_matcher.py`** (Reviewer #1, Concern #5) — human-validation workflow for the flexible matcher, run in two steps:
+  - `build`: draws a blinded, stratified sample from the predictions file (stratified on the matcher's own flag × answerability) and writes one annotation sheet per annotator plus `ANNOTATION_GUIDELINE.txt`.
+  - `score`: reads the completed sheets and reports inter-annotator agreement (Cohen's kappa), matcher precision/recall/F1 against the adjudicated human labels (with 95% bootstrap CIs), population-weighted re-estimates of abstention accuracy and false-abstention rate, and an error taxonomy for the matcher's false positives.
+  - Reads/writes under `arabicaqa_rag_results/annotation/`.
 
 ---
 
@@ -136,11 +158,12 @@ Statistical Significance Analysis
 5. Retrieve top-*k* passages per query
 6. Generate answers using an LLM (OpenRouter backend)
 7. Evaluate using:
-   - Task metrics (EM, EM25, no-answer accuracy, abstention rate)
+   - Task metrics (EM, EM25, no-answer accuracy, abstention rate — matched with a shared, human-validated abstention matcher)
    - Lexical overlap metrics (Token-F1, ROUGE-L, BLEU-short)
    - Retrieval metrics (MRR@5, nDCG@5)
    - RAGAS metrics (faithfulness, answer relevancy, context precision/recall, etc.)
-   - Statistical significance (paired bootstrap, BH-FDR, Holm correction)
+   - Statistical significance (paired bootstrap/permutation tests, BH-FDR, Holm correction, TOST equivalence testing)
+   - Robustness diagnostics (Mistral-7B context-window overflow check, split-origin sensitivity analysis)
 
 ---
 
@@ -212,6 +235,7 @@ Run the notebooks **in numeric order**, top to bottom within each one — every 
 4. `03_EM_EM25_ans-abstention-rate.ipynb`
 5. `04_RAGAS_statistical-analysis.ipynb`
 6. `05_extra-metrics.ipynb`
+7. `06_split-origin_sensitivity_analysis.ipynb`
 
 > **Paid API calls:** `02_RAG.ipynb` (answer generation) and `04_RAGAS_statistical-analysis.ipynb` (RAGAS LLM-judge scoring) both call OpenRouter and incur cost per run. Avoid re-running them unnecessarily — the other notebooks only read the CSV/JSON files these two produce.
 
@@ -262,9 +286,16 @@ Depending on your notebook settings, you will typically produce:
 ### Statistical analysis
 
 - **Bootstrap 95% CI** — per metric, per model, per subset (ALL / ANSWERABLE / UNANSWERABLE)
-- **Paired bootstrap significance tests** — all model pairs, per metric
+- **Paired permutation / bootstrap significance tests** — all model pairs, per metric, B = 10,000
 - **Benjamini-Hochberg FDR correction** — controls false discovery rate across multiple comparisons
 - **Holm correction** — family-wise error rate control
+- **TOST equivalence testing** — two one-sided tests (pre-specified margin, 90% bootstrap CI) used to argue equivalence, not just non-significance, for RAGAS comparisons (faithfulness, context recall, context precision) that fail to reach significance
+
+### Robustness diagnostics
+
+- **Human-validated abstention matching** — a stratified sample of model outputs is independently labeled by two human annotators; inter-annotator agreement (Cohen's kappa) and the matcher's precision/recall/F1 against the adjudicated labels are reported, alongside population-weighted re-estimates of abstention accuracy and false-abstention rate
+- **Context-window overflow diagnostic** — re-tokenizes every prompt sent to the legacy `mistral-7b-instruct-v0.1` endpoint to check whether any exceeded its context budget and were silently compressed by OpenRouter
+- **Split-origin sensitivity analysis** — tests whether train- and test-origin instances within the 1,000-question evaluation sample score differently, to rule out partition-merging bias
 
 ---
 
@@ -277,6 +308,7 @@ This repo aims to make comparisons fair by:
 - Using deterministic generation settings when possible (temperature=0)
 - Saving retrieved contexts for consistent scoring
 - Using the same OpenRouter API endpoint for all models
+- Validating internal validity with reviewer-motivated robustness checks (context-window overflow diagnostic, split-origin sensitivity analysis, human-validated abstention matching)
 
 To reproduce exactly, ensure:
 
@@ -319,7 +351,7 @@ If you use this repository, please cite:
 - Fixed dense retriever (no hybrid or reranking)
 - Deterministic decoding only (temperature=0)
 - Evaluation limited to ArabicaQA
-- No human evaluation
+- No human evaluation of overall answer quality — human annotation is limited to validating the automatic abstention matcher on a stratified sample, not to judging correctness, fluency, or grounding of generated answers directly
 - Dependent on OpenRouter API availability and model deprecation schedules (note: `mistralai/mistral-7b-instruct-v0.1` on OpenRouter is scheduled for deprecation May 30, 2026)
 
 ## Compute Infrastructure
